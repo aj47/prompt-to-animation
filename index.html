@@ -1,0 +1,282 @@
+<html><head><base href="." />
+<title>Animation Generator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/js/all.min.js"></script>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+    background: #1a1a1a;
+    color: #fff;
+  }
+
+  .container {
+    background: #2a2a2a;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+  }
+
+  .input-group {
+    margin-bottom: 15px;
+  }
+
+  .input-group label {
+    display: block;
+    margin-bottom: 5px;
+    color: #ccc;
+  }
+
+  #api-key-input, #prompt-input {
+    width: 100%;
+    padding: 12px;
+    margin: 10px 0;
+    border: 2px solid #444;
+    border-radius: 5px;
+    background: #333;
+    color: #fff;
+    font-size: 16px;
+  }
+
+  #api-key-input.error {
+    border-color: #ff4444;
+  }
+
+  #generate-btn {
+    background: #4CAF50;
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background 0.3s;
+  }
+
+  #generate-btn:hover {
+    background: #45a049;
+  }
+
+  #generate-btn:disabled {
+    background: #666;
+    cursor: not-allowed;
+  }
+
+  #animation-container {
+    margin-top: 20px;
+    min-height: 300px;
+    border: 2px solid #444;
+    border-radius: 5px;
+    padding: 20px;
+    position: relative;
+  }
+
+  .loading {
+    display: none;
+    text-align: center;
+    padding: 20px;
+  }
+
+  .loading i {
+    font-size: 40px;
+    color: #4CAF50;
+  }
+
+  .error-message {
+    color: #ff4444;
+    padding: 10px;
+    margin: 10px 0;
+    border-radius: 5px;
+    background: rgba(255,68,68,0.1);
+    display: none;
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <h1>AI Animation Generator</h1>
+    
+    <div class="input-group">
+      <label for="api-key-input">OpenRouter API Key:</label>
+      <input type="password" id="api-key-input" placeholder="Enter your OpenRouter API key">
+      <div class="error-message" id="api-key-error"></div>
+    </div>
+
+    <div class="input-group">
+      <label for="prompt-input">Animation Prompt:</label>
+      <textarea id="prompt-input" rows="4" placeholder="Describe the animation you want to create... (You can include FontAwesome icons in your description)"></textarea>
+      <div class="error-message" id="prompt-error"></div>
+    </div>
+
+    <button id="generate-btn" disabled>Generate Animation</button>
+    
+    <div class="loading">
+      <i class="fas fa-spinner fa-spin"></i>
+      <p>Generating animation...</p>
+    </div>
+    
+    <div id="animation-container"></div>
+  </div>
+
+<script>
+let OPENROUTER_API_KEY = '';
+
+function validateApiKey(apiKey) {
+  if (!apiKey) return 'API key is required';
+  if (apiKey.length < 30) return 'API key seems too short';
+  return null;
+}
+
+function validatePrompt(prompt) {
+  if (!prompt.trim()) return 'Prompt is required';
+  if (prompt.length < 10) return 'Prompt should be more descriptive';
+  return null;
+}
+
+function updateButtonState() {
+  const apiKey = document.getElementById('api-key-input').value;
+  const prompt = document.getElementById('prompt-input').value;
+  const generateButton = document.getElementById('generate-btn');
+  
+  generateButton.disabled = !apiKey || !prompt.trim();
+}
+
+async function generateAnimation(prompt) {
+  const loading = document.querySelector('.loading');
+  const container = document.getElementById('animation-container');
+  const apiKeyError = document.getElementById('api-key-error');
+  const promptError = document.getElementById('prompt-error');
+  
+  apiKeyError.style.display = 'none';
+  promptError.style.display = 'none';
+
+  const apiKeyErrorMsg = validateApiKey(OPENROUTER_API_KEY);
+  const promptErrorMsg = validatePrompt(prompt);
+
+  if (apiKeyErrorMsg) {
+    apiKeyError.textContent = apiKeyErrorMsg;
+    apiKeyError.style.display = 'block';
+    return;
+  }
+
+  if (promptErrorMsg) {
+    promptError.textContent = promptErrorMsg;
+    promptError.style.display = 'block';
+    return;
+  }
+
+  loading.style.display = 'block';
+  container.innerHTML = '';
+
+  try {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        "model": "openai/gpt-3.5-turbo",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are an expert at creating SVG animations with GSAP and FontAwesome icons. Respond only with valid SVG and JavaScript code that creates the animation described. Include both the SVG markup and the GSAP animation code. When appropriate, use FontAwesome icons in your animations by including them as <i> elements with the appropriate classes. Format your response with the SVG code first, followed by a separate JavaScript section."
+          },
+          {
+            "role": "user",
+            "content": prompt + " (Include FontAwesome icons where appropriate)"
+          }
+        ]
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error?.message || 'Failed to generate animation');
+    }
+
+    const data = await response.json();
+    const generatedCode = data.choices[0].message.content;
+    
+    // Modified regex to also capture SVG content that might include FontAwesome icons
+    const svgMatch = generatedCode.match(/<svg[\s\S]*?<\/svg>/);
+    const jsMatch = generatedCode.match(/gsap\.(to|from|fromTo|timeline|set)[\s\S]*?;/g);
+    
+    if (!svgMatch) {
+      throw new Error('No valid SVG animation generated');
+    }
+
+    container.innerHTML = svgMatch[0];
+    
+    // Ensure FontAwesome icons are properly initialized after inserting into DOM
+    if (window.FontAwesome) {
+      window.FontAwesome.dom.watch();
+    }
+    
+    if (jsMatch) {
+      try {
+        const safeJsCode = `
+          try {
+            ${jsMatch.join('\n')}
+          } catch (e) {
+            console.error('Animation error:', e);
+          }
+        `;
+        const animation = new Function(safeJsCode);
+        animation();
+      } catch (e) {
+        console.error('Failed to execute animation code:', e);
+        throw new Error('Failed to execute animation code');
+      }
+    }
+  } catch (error) {
+    console.error('Error:', error);
+    container.innerHTML = `
+      <div style="color: #ff4444; padding: 20px; text-align: center;">
+        <i class="fas fa-exclamation-triangle" style="font-size: 48px; margin-bottom: 15px;"></i>
+        <p>${error.message}</p>
+      </div>
+    `;
+  } finally {
+    loading.style.display = 'none';
+  }
+}
+
+document.getElementById('api-key-input').addEventListener('input', (e) => {
+  OPENROUTER_API_KEY = e.target.value;
+  updateButtonState();
+});
+
+document.getElementById('prompt-input').addEventListener('input', () => {
+  updateButtonState();
+});
+
+document.getElementById('generate-btn').addEventListener('click', () => {
+  const prompt = document.getElementById('prompt-input').value;
+  generateAnimation(prompt);
+});
+
+// Updated initial animation to include a FontAwesome icon
+const initialSvg = `
+<svg width="200" height="200" viewBox="0 0 200 200">
+  <foreignObject width="200" height="200">
+    <div xmlns="http://www.w3.org/1999/xhtml" style="text-align: center; width: 100%; height: 100%;">
+      <i class="fas fa-star" style="font-size: 48px; color: #4CAF50;"></i>
+    </div>
+  </foreignObject>
+</svg>`;
+
+document.getElementById('animation-container').innerHTML = initialSvg;
+
+gsap.to('#animation-container foreignObject i', {
+  scale: 1.5,
+  rotation: 360,
+  duration: 2,
+  yoyo: true,
+  repeat: -1,
+  transformOrigin: '50% 50%'
+});
+</script>
+</body></html>
